@@ -3,7 +3,6 @@ bundle:
 
 workspace:
   host: https://dbc-f3701868-1581.cloud.databricks.com
-  profile: dbc-f3701868-1581
 
 variables:
   catalog:
