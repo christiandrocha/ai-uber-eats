@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = "-v --tb=short"
+
+# Java 11+ must be on PATH (or JAVA_HOME set) to start the local Spark session.
+# Example: JAVA_HOME=/home/user/.local/jdk17 python -m pytest
