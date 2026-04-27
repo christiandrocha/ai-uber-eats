@@ -35,6 +35,10 @@ jobs:
   validate-bundle:
     name: Bundle Validate
     runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      DATABRICKS_CONFIG_FILE: /dev/null
 
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +47,4 @@ jobs:
         uses: databricks/setup-cli@main
 
       - name: Validate bundle
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: databricks bundle validate
