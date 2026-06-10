@@ -226,7 +226,7 @@ push / pull_request
 ┌───────────────────────────────────┐
 │  CI (runs on every push/PR)       │
 │  ├─ ruff check .                  │  Lint
-│  ├─ pytest (75 tests, cov ≥ 80%) │  Unit tests + coverage
+│  ├─ pytest (75 tests, cov ≥ 80%)  │  Unit tests + coverage
 │  └─ databricks bundle validate    │  Bundle config check
 └───────────────────┬───────────────┘
                     │ CI success on master
