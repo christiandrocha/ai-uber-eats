@@ -3,118 +3,34 @@
 Tests run locally with a PySpark local session — no Databricks connection needed.
 Logic mirrors 03_gold.ipynb cells, extracted as pure DataFrame transformations.
 """
+from datetime import date, datetime
+
 import pytest
-from datetime import datetime, date
+from conftest import EPOCH_MS
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
-    StructType, StructField,
-    StringType, TimestampType, DateType, DoubleType, LongType
+    DateType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
 )
 
-from conftest import EPOCH_MS
-
+from uber_eats.gold import build_gold, gold_merge
 
 # ---------------------------------------------------------------------------
 # Silver schema for test fixtures (subset of full Silver schema)
 # ---------------------------------------------------------------------------
 
 SILVER_SCHEMA = StructType([
-    StructField("event_id",        StringType(),   nullable=False),
-    StructField("payment_id",      StringType(),   nullable=False),
-    StructField("event_name",      StringType(),   nullable=False),
+    StructField("event_id",        StringType(),    nullable=False),
+    StructField("payment_id",      StringType(),    nullable=False),
+    StructField("event_name",      StringType(),    nullable=False),
     StructField("event_timestamp", TimestampType(), nullable=False),
-    StructField("event_date",      DateType(),     nullable=False),
+    StructField("event_date",      DateType(),      nullable=False),
 ])
 
-# Epoch ms → seconds for arithmetic
 EPOCH_S = EPOCH_MS / 1000
-
-
-# ---------------------------------------------------------------------------
-# Helper: mirrors the Gold aggregation in cell-5 of 03_gold.ipynb
-# ---------------------------------------------------------------------------
-
-def build_gold(silver_df):
-    """Reproduce the Gold aggregation exactly as in 03_gold.ipynb cell-5."""
-    return (
-        silver_df
-        .groupBy("payment_id")
-        .agg(
-            F.max(
-                F.when(F.col("event_name") == "created",    F.col("event_timestamp"))
-            ).alias("created_at"),
-            F.max(
-                F.when(F.col("event_name") == "authorized", F.col("event_timestamp"))
-            ).alias("authorized_at"),
-            F.max(
-                F.when(F.col("event_name") == "captured",   F.col("event_timestamp"))
-            ).alias("captured_at"),
-            F.count("event_id").alias("event_count"),
-        )
-        .withColumn(
-            "payment_status",
-            F.when(F.col("captured_at").isNotNull(),   F.lit("captured"))
-             .when(F.col("authorized_at").isNotNull(), F.lit("authorized"))
-             .otherwise(                               F.lit("created"))
-        )
-        .withColumn(
-            "auth_time_seconds",
-            F.when(
-                F.col("authorized_at").isNotNull() & F.col("created_at").isNotNull(),
-                F.unix_timestamp(F.col("authorized_at")) - F.unix_timestamp(F.col("created_at"))
-            ).otherwise(F.lit(None).cast("double"))
-        )
-        .withColumn(
-            "capture_time_seconds",
-            F.when(
-                F.col("captured_at").isNotNull() & F.col("authorized_at").isNotNull(),
-                F.unix_timestamp(F.col("captured_at")) - F.unix_timestamp(F.col("authorized_at"))
-            ).otherwise(F.lit(None).cast("double"))
-        )
-        .withColumn(
-            "total_processing_time_seconds",
-            F.when(
-                F.col("captured_at").isNotNull() & F.col("created_at").isNotNull(),
-                F.unix_timestamp(F.col("captured_at")) - F.unix_timestamp(F.col("created_at"))
-            ).otherwise(F.lit(None).cast("double"))
-        )
-        .withColumn("_computed_at", F.current_timestamp())
-        .select(
-            "payment_id",
-            "created_at",
-            "authorized_at",
-            "captured_at",
-            "payment_status",
-            "auth_time_seconds",
-            "capture_time_seconds",
-            "total_processing_time_seconds",
-            "event_count",
-            "_computed_at",
-        )
-    )
-
-
-def gold_merge(existing_df, incoming_df, business_key: str = "payment_id"):
-    """Simulate MERGE: update existing rows unconditionally, insert new ones."""
-    if existing_df.rdd.isEmpty():
-        return incoming_df
-
-    updated = incoming_df.join(
-        existing_df.select(business_key),
-        on=business_key,
-        how="inner"
-    )
-    new_rows = incoming_df.join(
-        existing_df.select(business_key),
-        on=business_key,
-        how="left_anti",
-    )
-    untouched = existing_df.join(
-        updated.select(business_key),
-        on=business_key,
-        how="left_anti",
-    )
-    return untouched.unionByName(updated).unionByName(new_rows)
 
 
 # ---------------------------------------------------------------------------

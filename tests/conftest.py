@@ -1,12 +1,15 @@
 """Shared fixtures for local PySpark tests (no Databricks connection required)."""
-import pytest
-from datetime import datetime, date
-from unittest.mock import MagicMock, patch
+from datetime import datetime
 
+import pytest
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
-    StructType, StructField,
-    StringType, LongType, TimestampType, DateType, DoubleType
+    DateType,
+    LongType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
 )
 
 
@@ -68,8 +71,8 @@ SILVER_SCHEMA = StructType([
     StructField("_silver_processed_at", TimestampType(), nullable=True),
 ])
 
-VALID_EVENT_NAMES = {"created", "authorized", "captured"}
-DT_FORMAT = "yyyy-MM-dd HH:mm:ss.SSS"
+# VALID_EVENT_NAMES and DT_FORMAT are imported from uber_eats.silver above
+# and re-exported here so tests that import them from conftest continue to work.
 
 # Epoch ms for 2025-10-05 18:06:40.420 UTC
 EPOCH_MS = 1759687600420

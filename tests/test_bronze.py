@@ -3,43 +3,14 @@
 Tests run locally with a PySpark local session — no Databricks connection needed.
 Logic mirrors 01_bronze.ipynb cells, extracted as pure DataFrame transformations.
 """
+from datetime import date
+
 import pytest
-from datetime import datetime, date, timezone
-from pyspark.sql import functions as F
-from pyspark.sql.types import LongType, StringType, StructType, StructField
-
 from conftest import BRONZE_SOURCE_SCHEMA, BRONZE_TABLE_SCHEMA, EPOCH_MS
+from pyspark.sql import functions as F
+from pyspark.sql.types import LongType, StructField, StructType
 
-
-# ---------------------------------------------------------------------------
-# Helpers that mirror the notebook transformation cells
-# ---------------------------------------------------------------------------
-
-def add_metadata_columns(df, source_system: str = "uber_eats_payments_api"):
-    """Mirrors the metadata column additions in cell-7 of 01_bronze.ipynb."""
-    return (
-        df
-        .withColumn("_ingested_at",   F.current_timestamp())
-        .withColumn("_ingested_date", F.to_date(F.current_timestamp()))
-        .withColumn("_source_file",   F.lit("test/source_file.json"))
-        .withColumn("_source_system", F.lit(source_system))
-    )
-
-
-def merge_dedup(existing_df, incoming_df):
-    """
-    Simulates the idempotent MERGE on event_id.
-    Deduplicates within the incoming batch first (matching Delta's recommendation
-    to deduplicate source before MERGE), then inserts only event_ids absent from
-    the target.
-    """
-    new_rows = (
-        incoming_df
-        .dropDuplicates(["event_id"])
-        .join(existing_df.select("event_id"), on="event_id", how="left_anti")
-    )
-    return existing_df.unionByName(new_rows, allowMissingColumns=True)
-
+from uber_eats.bronze import add_metadata_columns, merge_dedup, validate_structure
 
 # ---------------------------------------------------------------------------
 # Schema tests
@@ -113,7 +84,6 @@ class TestBronzeMetadataColumns:
         assert systems == {system}
 
     def test_ingested_at_is_timestamp(self, spark, raw_events):
-        from pyspark.sql.types import TimestampType
         df = add_metadata_columns(raw_events)
         ts_dtype = dict(df.dtypes)["_ingested_at"]
         assert ts_dtype == "timestamp", f"Expected timestamp, got {ts_dtype}"
@@ -135,7 +105,6 @@ class TestBronzeStructuralValidation:
 
     def test_empty_dataframe_triggers_validation_error(self, spark):
         """Mirrors the Bronze validation: empty source raises ValueError."""
-        from pyspark.sql import Row
         empty_df = spark.createDataFrame([], schema=BRONZE_SOURCE_SCHEMA)
         with pytest.raises((ValueError, AssertionError)):
             count = empty_df.count()
@@ -186,3 +155,22 @@ class TestBronzeIdempotency:
         assert result_count == 3, (
             f"Expected 3 unique event_ids after merge, got {result_count}"
         )
+
+
+# ---------------------------------------------------------------------------
+# validate_structure
+# ---------------------------------------------------------------------------
+
+class TestBronzeValidateStructure:
+    def test_valid_df_passes(self, spark, raw_events):
+        validate_structure(raw_events, source_path="/test/path")  # no exception
+
+    def test_empty_df_raises(self, spark):
+        empty_df = spark.createDataFrame([], schema=BRONZE_SOURCE_SCHEMA)
+        with pytest.raises(ValueError, match="no records found"):
+            validate_structure(empty_df, source_path="/empty/path")
+
+    def test_missing_columns_raises(self, spark):
+        df = spark.createDataFrame([(1,)], "x INT")
+        with pytest.raises(ValueError, match="missing required columns"):
+            validate_structure(df)

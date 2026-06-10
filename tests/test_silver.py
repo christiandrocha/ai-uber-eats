@@ -3,117 +3,22 @@
 Tests run locally with a PySpark local session — no Databricks connection needed.
 Logic mirrors 02_silver.ipynb cells, extracted as pure DataFrame transformations.
 """
-import pytest
-from datetime import datetime, date
-from pyspark.sql import functions as F
-from pyspark.sql.window import Window
-from pyspark.sql.types import StringType, TimestampType
+from datetime import date, datetime
 
+import pytest
 from conftest import (
     BRONZE_SOURCE_SCHEMA,
-    VALID_EVENT_NAMES,
-    DT_FORMAT,
     EPOCH_MS,
 )
+from pyspark.sql import functions as F
 
-
-# ---------------------------------------------------------------------------
-# Helpers mirroring 02_silver.ipynb cells
-# ---------------------------------------------------------------------------
-
-def apply_quality_gate(df):
-    """Mirrors cell-6: classify each row as valid or quarantine."""
-    valid_names_list = list(VALID_EVENT_NAMES)
-    return df.withColumn(
-        "_quarantine_reason",
-        F.when(F.col("event_id").isNull(),           F.lit("event_id is null"))
-         .when(F.col("payment_id").isNull(),          F.lit("payment_id is null"))
-         .when(F.col("event").isNull(),               F.lit("event struct is null"))
-         .when(
-             ~F.col("event.event_name").isin(valid_names_list),
-             F.concat(
-                 F.lit("invalid event_name: "),
-                 F.coalesce(F.col("event.event_name"), F.lit("<null>"))
-             )
-         )
-         .when(F.col("event.timestamp").isNull(),     F.lit("event.timestamp is null"))
-         .otherwise(F.lit(None).cast(StringType()))
-    )
-
-
-def apply_transformations(valid_df):
-    """Mirrors cell-8: type casts, struct flattening, metadata."""
-    return (
-        valid_df
-        .withColumn("event_name",   F.col("event.event_name"))
-        .withColumn(
-            "event_timestamp",
-            F.timestamp_seconds((F.col("event.timestamp") / 1000).cast("double"))
-        )
-        .withColumn(
-            "dt_current_timestamp",
-            F.to_timestamp(F.col("dt_current_timestamp"), DT_FORMAT)
-        )
-        .withColumn("event_date",           F.to_date(F.col("event_timestamp")))
-        .withColumn("_silver_processed_at", F.current_timestamp())
-        .drop("event")
-        .select(
-            "event_id",
-            "payment_id",
-            "event_name",
-            "event_timestamp",
-            "dt_current_timestamp",
-            "event_date",
-            "_silver_processed_at",
-        )
-    )
-
-
-def deduplicate(df, business_key: str = "event_id"):
-    """Mirrors cell-9: keep the most-recently-ingested row per business_key."""
-    # Add a deterministic ordering column when _ingested_at isn't present (test mode)
-    if "_ingested_at" not in df.columns:
-        df = df.withColumn("_ingested_at", F.current_timestamp())
-
-    window = Window.partitionBy(business_key).orderBy(F.col("_ingested_at").desc())
-    return (
-        df
-        .withColumn("_rn", F.row_number().over(window))
-        .filter(F.col("_rn") == 1)
-        .drop("_rn")
-    )
-
-
-def silver_merge_dedup(existing_df, incoming_df, business_key: str = "event_id"):
-    """
-    Simulates the Silver MERGE:
-      - WHEN MATCHED AND source._ingested_at > target._ingested_at → UPDATE
-      - WHEN NOT MATCHED → INSERT
-    """
-    if existing_df.rdd.isEmpty():
-        return incoming_df
-
-    # Rows that already exist in Silver → keep newer version
-    matched = (
-        incoming_df.alias("s")
-        .join(existing_df.alias("t"), business_key)
-        .where(F.col("s._silver_processed_at") > F.col("t._silver_processed_at"))
-        .select("s.*")
-    )
-    # Rows that don't exist in Silver yet
-    not_matched = incoming_df.join(
-        existing_df.select(business_key),
-        on=business_key,
-        how="left_anti",
-    )
-    # Keep existing rows that were NOT updated, plus matched updates, plus new inserts
-    untouched_existing = existing_df.join(
-        matched.select(business_key),
-        on=business_key,
-        how="left_anti",
-    )
-    return untouched_existing.unionByName(matched).unionByName(not_matched)
-
+from uber_eats.silver import (
+    apply_quality_gate,
+    apply_transformations,
+    check_quarantine_rate,
+    deduplicate,
+    silver_merge_dedup,
+)
 
 # ---------------------------------------------------------------------------
 # Quality gate tests
@@ -334,3 +239,26 @@ class TestSilverIdempotency:
         second_run = initial.unionByName(extra_df)
         result = silver_merge_dedup(initial, second_run)
         assert result.count() == 4
+
+
+# ---------------------------------------------------------------------------
+# Quarantine rate check
+# ---------------------------------------------------------------------------
+
+class TestSilverQuarantineRate:
+    def test_rate_within_threshold_passes(self):
+        check_quarantine_rate(valid_count=100, quarantine_count=4)  # 4% < 5%
+
+    def test_rate_exactly_at_threshold_passes(self):
+        check_quarantine_rate(valid_count=95, quarantine_count=5)  # exactly 5%
+
+    def test_rate_exceeds_threshold_raises(self):
+        with pytest.raises(ValueError, match="quarantine rate"):
+            check_quarantine_rate(valid_count=90, quarantine_count=10)  # 10% > 5%
+
+    def test_zero_total_is_a_noop(self):
+        check_quarantine_rate(valid_count=0, quarantine_count=0)  # no exception
+
+    def test_all_quarantined_raises(self):
+        with pytest.raises(ValueError, match="quarantine rate"):
+            check_quarantine_rate(valid_count=0, quarantine_count=50)
