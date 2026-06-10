@@ -241,12 +241,10 @@ Silver enables `delta.enableChangeDataFeed = true`. This allows future increment
 
 ## Next Steps
 
-- **CI/CD**: Add a GitHub Actions workflow that runs `databricks bundle validate` on PRs and `databricks bundle deploy` on merges to `main`.
-- **Unit tests**: Flesh out `tests/` with PySpark unit tests using `pyspark.testing` — Bronze schema assertion, Silver quarantine routing, Gold status derivation logic.
 - **dbt integration**: Model the Gold layer as a dbt model on top of Silver for analyst-friendly SQL transformations and built-in `dbt test` data quality.
-- **Incremental Silver reads**: Filter Bronze reads by `_ingested_at > max(silver._silver_processed_at)` to process only new Bronze partitions on each run.
-- **Alerting**: Add a Silver quarantine-rate monitor — alert when `quarantine_count / total_count > 5%`.
 - **Schema evolution**: Evaluate `CONSTRAINT` columns and `CHECK` constraints in the Silver DDL as the source schema stabilises.
+- **Databricks SQL Alerts**: Add a quarantine-rate dashboard alert in Databricks SQL for continuous monitoring beyond the pipeline's built-in 5% threshold check.
+- **staging/prod promotion**: Configure GitHub Environment approvals so `databricks bundle deploy --target prod` requires manual sign-off from a reviewer.
 
 ---
 

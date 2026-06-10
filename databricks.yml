@@ -54,3 +54,19 @@ targets:
     default: true
     workspace:
       host: https://dbc-f3701868-1581.cloud.databricks.com
+
+  staging:
+    mode: production
+    workspace:
+      host: https://dbc-f3701868-1581.cloud.databricks.com
+    variables:
+      catalog: aiubereats_staging
+      schema: payments
+
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-f3701868-1581.cloud.databricks.com
+    variables:
+      catalog: aiubereats
+      schema: payments
