@@ -17,6 +17,10 @@ bundle.lock
 # Jupyter
 .ipynb_checkpoints/
 
+# Coverage
+.coverage
+htmlcov/
+
 # Secrets
 *.token
 *.key

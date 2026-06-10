@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Lint (ruff)
+        run: ruff check .
+
       - name: Run pytest
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}

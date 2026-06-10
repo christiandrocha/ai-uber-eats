@@ -1,7 +1,16 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests"]
-addopts = "-v --tb=short"
+pythonpath = ["tests", "src"]
+addopts = "-v --tb=short --cov=uber_eats --cov-report=term-missing --cov-fail-under=80"
 
 # Java 11+ must be on PATH (or JAVA_HOME set) to start the local Spark session.
 # Example: JAVA_HOME=/home/user/.local/jdk17 python -m pytest
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".claude", "notebooks", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
