@@ -7,13 +7,17 @@
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![Coverage 100%](https://img.shields.io/badge/coverage-100%25-brightgreen)
 
+**Stack:** Databricks Serverless · Delta Lake · PySpark 4.1 · Unity Catalog · Databricks Asset Bundles · GitHub Actions · Python 3.12 · pytest · ruff
+
 ---
 
 ## Overview
 
-This project implements a production-grade **Medallion Architecture** pipeline that ingests JSON files containing Uber Eats payment events from a mixed-schema Unity Catalog Volume, cleanses and enriches the data through layered transformations, and delivers a business-ready payment lifecycle summary to the Gold layer.
+Payment teams need to track the full lifecycle of a transaction — from creation through authorization to capture — and measure how long each step takes. Raw payment events arrive as JSON in a shared Unity Catalog Volume alongside data from other Uber Eats domains (GPS, orders, restaurants), with timestamps encoded in scientific notation and no schema enforcement.
 
-The pipeline runs as a Databricks Job with three sequential notebook tasks deployed via **Databricks Asset Bundles (DABs)**. All compute runs on **Databricks Serverless** using the Spark Connect API. Transformation logic lives in the importable `uber_eats` Python package, keeping notebooks thin and all business logic unit-testable locally without a Databricks connection.
+This pipeline ingests **507K+ payment events per run**, isolates them from mixed-domain source data, applies a 5-rule quality gate with quarantine, and delivers one clean row per payment with lifecycle timestamps and timing metrics to an analytics-ready Gold table — all idempotent and re-runnable without producing duplicates.
+
+The pipeline runs as a Databricks Job deployed via **Databricks Asset Bundles (DABs)** across dev, staging, and prod environments. All transformation logic lives in the importable `uber_eats` Python package, keeping notebooks thin and every business rule unit-testable locally without a Databricks connection.
 
 ---
 
@@ -164,6 +168,32 @@ One row per `payment_id`. Pivots events via conditional aggregation to derive li
 | `total_processing_time_seconds` | DOUBLE | `captured_at − created_at` (null if not captured) |
 | `event_count` | LONG NOT NULL | Distinct events observed for this payment |
 | `_computed_at` | TIMESTAMP NOT NULL | When this Gold row was last recomputed |
+
+---
+
+## Pipeline Output
+
+After a full run, the Gold table contains one row per `payment_id` with the complete lifecycle:
+
+```
++------------+---------------------+---------------------+---------------------+----------------+------------------+---------------------+------------------------------+-------------+
+| payment_id | created_at          | authorized_at       | captured_at         | payment_status | auth_time_seconds| capture_time_seconds| total_processing_time_seconds| event_count |
++------------+---------------------+---------------------+---------------------+----------------+------------------+---------------------+------------------------------+-------------+
+| pay-A      | 2025-10-05 18:00:00 | 2025-10-05 18:00:30 | 2025-10-05 18:01:30 | captured       | 30.0             | 60.0                | 90.0                         | 3           |
+| pay-B      | 2025-10-05 19:00:00 | 2025-10-05 19:00:45 | null                | authorized     | 45.0             | null                | null                         | 2           |
+| pay-C      | 2025-10-05 20:00:00 | null                | null                | created        | null             | null                | null                         | 1           |
++------------+---------------------+---------------------+---------------------+----------------+------------------+---------------------+------------------------------+-------------+
+```
+
+**What this enables:**
+
+| Question | Answer from Gold |
+|----------|-----------------|
+| What is the capture rate? | `COUNT(*) WHERE payment_status = 'captured' / COUNT(*)` |
+| What is the average end-to-end processing time? | `AVG(total_processing_time_seconds)` WHERE captured |
+| Which payments are stuck in authorization? | Filter `payment_status = 'authorized'` + `authorized_at < now() - interval 1 hour` |
+| How many events did each payment produce? | `event_count` column |
+| Did any payments skip authorization and go straight to capture? | `captured_at IS NOT NULL AND authorized_at IS NULL` |
 
 ---
 
