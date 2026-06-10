@@ -16,17 +16,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
+      - name: Install dbt-databricks
+        run: pip install dbt-databricks==1.9.3
+
+      # ── Bronze + Silver ───────────────────────────────────────────────────
       - name: Deploy bundle
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HOST:  ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: databricks bundle deploy
 
-      - name: Run medallion pipeline
+      - name: Run Bronze + Silver
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HOST:  ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: databricks bundle run medallion_pipeline
+
+      # ── Gold (dbt) ────────────────────────────────────────────────────────
+      - name: dbt run (Gold)
+        env:
+          DATABRICKS_HOST:      ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN:     ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+        run: dbt run --profiles-dir dbt --project-dir dbt
+
+      - name: dbt test (Gold)
+        env:
+          DATABRICKS_HOST:      ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN:     ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+        run: dbt test --profiles-dir dbt --project-dir dbt

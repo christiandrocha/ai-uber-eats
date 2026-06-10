@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: gold_payment_summary
+    description: >
+      One row per payment_id summarising the full payment lifecycle.
+      Derived from silver_payment_events via conditional aggregation.
+      Incrementally updated — only payment_ids with new Silver activity
+      are recomputed on each run.
+
+    columns:
+      - name: payment_id
+        description: "Business key — unique per payment."
+        tests:
+          - unique
+          - not_null
+
+      - name: created_at
+        description: "Timestamp of the 'created' event."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: authorized_at
+        description: "Timestamp of the 'authorized' event. Null if not yet authorized."
+
+      - name: captured_at
+        description: "Timestamp of the 'captured' event. Null if not yet captured."
+
+      - name: payment_status
+        description: "Most advanced lifecycle state: captured > authorized > created."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['created', 'authorized', 'captured']
+
+      - name: auth_time_seconds
+        description: "Seconds from created_at to authorized_at. Null when authorized_at is null."
+
+      - name: capture_time_seconds
+        description: "Seconds from authorized_at to captured_at. Null when captured_at is null."
+
+      - name: total_processing_time_seconds
+        description: "Seconds from created_at to captured_at. Null when captured_at is null."
+
+      - name: event_count
+        description: "Total events observed for this payment_id."
+        tests:
+          - not_null
+
+      - name: _computed_at
+        description: "Timestamp when this Gold row was last computed by dbt."
+        tests:
+          - not_null

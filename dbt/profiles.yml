@@ -1,0 +1,40 @@
+# dbt connection profile for Databricks.
+# Credentials are read from environment variables — never hardcode values here.
+#
+# Required secrets (GitHub Actions / local .env):
+#   DATABRICKS_HOST      — e.g. https://dbc-f3701868-1581.cloud.databricks.com
+#   DATABRICKS_TOKEN     — Databricks personal access token
+#   DATABRICKS_HTTP_PATH — SQL Warehouse HTTP path, e.g. /sql/1.0/warehouses/<id>
+#
+# To find DATABRICKS_HTTP_PATH:
+#   Databricks workspace → SQL Warehouses → select warehouse → Connection Details → HTTP Path
+
+ai_uber_eats:
+  target: dev
+  outputs:
+    dev:
+      type:             databricks
+      catalog:          aiubereats
+      schema:           payments
+      host:             "{{ env_var('DATABRICKS_HOST') | replace('https://', '') }}"
+      http_path:        "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token:            "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads:          4
+
+    staging:
+      type:             databricks
+      catalog:          aiubereats_staging
+      schema:           payments
+      host:             "{{ env_var('DATABRICKS_HOST') | replace('https://', '') }}"
+      http_path:        "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token:            "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads:          4
+
+    prod:
+      type:             databricks
+      catalog:          aiubereats
+      schema:           payments
+      host:             "{{ env_var('DATABRICKS_HOST') | replace('https://', '') }}"
+      http_path:        "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token:            "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads:          4

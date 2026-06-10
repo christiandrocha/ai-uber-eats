@@ -7,7 +7,7 @@
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![Coverage 100%](https://img.shields.io/badge/coverage-100%25-brightgreen)
 
-**Stack:** Databricks Serverless · Delta Lake · PySpark 4.1 · Unity Catalog · Databricks Asset Bundles · GitHub Actions · Python 3.12 · pytest · ruff
+**Stack:** Databricks Serverless · Delta Lake · PySpark 4.1 · dbt-databricks · Unity Catalog · Databricks Asset Bundles · GitHub Actions · Python 3.12 · pytest · ruff
 
 ---
 
@@ -28,22 +28,23 @@ The pipeline runs as a Databricks Job deployed via **Databricks Asset Bundles (D
            │  JSON files (mixed event types — payment events filtered at Bronze)
            ▼
 ┌──────────────────────────────────────┐
-│   Bronze Layer                       │  Filter to payment events, explicit schema,
+│   Bronze Layer  [PySpark]            │  Filter to payment events, explicit schema,
 │   bronze_payment_events              │  idempotent MERGE on event_id,
 │                                      │  partition by _ingested_date
 └──────────────────┬───────────────────┘
                    │  incremental read (_ingested_at watermark)
                    ▼
 ┌──────────────────────────────────────┐
-│   Silver Layer                       │  Quality gate (5 rules), quarantine pattern,
+│   Silver Layer  [PySpark]            │  Quality gate (5 rules), quarantine pattern,
 │   silver_payment_events              │  dedup, type casting, MERGE on event_id,
 │   quarantine_payment_events          │  Liquid Clustering, Change Data Feed
 └──────────────────┬───────────────────┘
+                   │  dbt source ref
                    ▼
 ┌──────────────────────────────────────┐
-│   Gold Layer                         │  One row per payment_id — lifecycle summary,
-│   gold_payment_summary               │  timing metrics, MERGE on payment_id,
-│                                      │  Liquid Clustering on payment_status
+│   Gold Layer  [dbt]                  │  One row per payment_id — lifecycle summary,
+│   gold_payment_summary               │  timing metrics, incremental MERGE,
+│                                      │  schema tests + custom tests
 └──────────────────────────────────────┘
 ```
 
@@ -56,26 +57,36 @@ ai-uber-eats/
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml              # Lint + test + bundle validate (on every push/PR)
-│       └── cd.yml              # Deploy + run (on master, gated on CI passing)
+│       └── cd.yml              # Deploy + run Bronze/Silver + dbt run/test (on master)
 ├── notebooks/
 │   ├── 01_bronze.ipynb         # Raw ingestion — filter, schema, MERGE
 │   ├── 02_silver.ipynb         # Cleanse, deduplicate, quarantine, incremental read
-│   └── 03_gold.ipynb           # Payment lifecycle aggregation
+│   └── 03_gold.ipynb           # Reference only — Gold is now managed by dbt
+├── dbt/
+│   ├── dbt_project.yml         # dbt project config — name, paths, materialization
+│   ├── profiles.yml            # Databricks connection (reads from env vars)
+│   ├── models/
+│   │   ├── sources.yml         # silver_payment_events declared as dbt source
+│   │   └── gold/
+│   │       ├── gold_payment_summary.sql   # Gold aggregation — incremental MERGE
+│   │       └── gold_payment_summary.yml   # Schema tests: unique, not_null, accepted_values
+│   └── tests/
+│       └── assert_no_negative_times.sql   # Custom test — time metrics ≥ 0
 ├── src/
 │   └── uber_eats/
 │       ├── __init__.py         # Public API re-exports
 │       ├── bronze.py           # add_metadata_columns, merge_dedup, validate_structure
 │       ├── silver.py           # apply_quality_gate, apply_transformations, deduplicate,
 │       │                       #   silver_merge_dedup, check_quarantine_rate + constants
-│       └── gold.py             # build_gold, gold_merge
+│       └── gold.py             # build_gold, gold_merge (used by unit tests)
 ├── tests/
 │   ├── conftest.py             # Shared SparkSession fixture and test schemas
 │   ├── test_bronze.py          # 22 tests — schema, metadata, dedup, validation
 │   ├── test_silver.py          # 34 tests — quality gate, transforms, dedup, idempotency
 │   └── test_gold.py            # 19 tests — aggregation, status, timing, idempotency
-├── databricks.yml              # DABs bundle — job definition, dev/staging/prod targets
+├── databricks.yml              # DABs bundle — Bronze + Silver job, dev/staging/prod targets
 ├── pyproject.toml              # pytest + coverage + ruff config
-├── requirements-dev.txt        # Pinned dev dependencies
+├── requirements-dev.txt        # Pinned dev dependencies (includes dbt-databricks)
 └── .pre-commit-config.yaml     # ruff check + ruff-format on commit
 ```
 
@@ -242,6 +253,62 @@ The CD workflow triggers via `workflow_run` and only fires when CI passes — no
 
 ---
 
+## dbt — Gold Layer
+
+The Gold layer is managed by [dbt-databricks](https://github.com/databricks/dbt-databricks). It reads from `silver_payment_events` and produces `gold_payment_summary` via an incremental MERGE on `payment_id`.
+
+### Models
+
+| Model | Materialization | Description |
+|-------|----------------|-------------|
+| `gold_payment_summary` | incremental (merge) | One row per payment — lifecycle timestamps, status, timing metrics |
+
+### Tests
+
+| Test | Type | What it checks |
+|------|------|---------------|
+| `unique(payment_id)` | schema | No duplicate payment_ids in Gold |
+| `not_null(payment_id)` | schema | Business key is always present |
+| `not_null(payment_status)` | schema | Every payment has a status |
+| `accepted_values(payment_status)` | schema | Only `created`, `authorized`, `captured` |
+| `not_null(event_count)` | schema | Event count is always populated |
+| `assert_no_negative_times` | custom | Time metrics are never negative |
+
+### Running dbt locally
+
+```bash
+# Set required environment variables
+export DATABRICKS_HOST=https://dbc-f3701868-1581.cloud.databricks.com
+export DATABRICKS_TOKEN=<your-token>
+export DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/<warehouse-id>
+
+# Run Gold model
+dbt run --profiles-dir dbt --project-dir dbt
+
+# Run all tests
+dbt test --profiles-dir dbt --project-dir dbt
+
+# Full refresh (rebuilds Gold from scratch)
+dbt run --profiles-dir dbt --project-dir dbt --full-refresh
+
+# Generate and serve documentation
+dbt docs generate --profiles-dir dbt --project-dir dbt
+dbt docs serve --project-dir dbt
+```
+
+### Required GitHub Secret
+
+Add `DATABRICKS_HTTP_PATH` to your repository secrets (Settings → Secrets → Actions):
+
+```
+Name:  DATABRICKS_HTTP_PATH
+Value: /sql/1.0/warehouses/<your-warehouse-id>
+```
+
+Find your warehouse HTTP path: Databricks workspace → SQL Warehouses → select warehouse → **Connection Details** tab → HTTP Path.
+
+---
+
 ## Environment Setup
 
 ### Prerequisites
@@ -374,10 +441,11 @@ All operations use the DataFrame/SQL API exclusively — no `sparkContext`, no R
 
 ## Next Steps
 
-- **dbt integration**: Model the Gold layer as a dbt model on top of Silver for analyst-friendly SQL and built-in `dbt test` data quality checks.
+- **dbt marts**: Add analytical models on top of `gold_payment_summary` — e.g. `payments_captured_under_60s`, `daily_capture_rate` — each as a simple `.sql` file in `dbt/models/`.
 - **Schema evolution**: Evaluate `CONSTRAINT` columns and `CHECK` constraints in Silver DDL as the source schema stabilises.
 - **Databricks SQL Alerts**: Add a quarantine-rate dashboard alert for continuous monitoring beyond the pipeline's built-in 5% threshold check.
 - **staging/prod promotion**: Configure GitHub Environment approvals so `databricks bundle deploy --target prod` requires manual sign-off from a reviewer.
+- **dbt docs site**: Publish the dbt documentation site (`dbt docs generate`) to GitHub Pages on each CD run for automatic lineage and column documentation.
 
 ---
 

@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: payments
+    description: "Cleansed payment event data from the Silver layer."
+    database: aiubereats
+    schema:   payments
+    tables:
+      - name: silver_payment_events
+        description: >
+          Deduplicated, type-cast, and quality-gated payment events.
+          One row per event_id. Business key: event_id.
+        columns:
+          - name: event_id
+            description: "Unique event identifier."
+          - name: payment_id
+            description: "Payment foreign key — groups events by payment lifecycle."
+          - name: event_name
+            description: "One of: created, authorized, captured."
+          - name: event_timestamp
+            description: "Event timestamp (epoch ms cast to TIMESTAMP)."
+          - name: event_date
+            description: "Date derived from event_timestamp."
+          - name: _silver_processed_at
+            description: "When Silver last processed this row."
