@@ -26,11 +26,21 @@ SELECT
     MAX(CASE WHEN event_name = 'created'    THEN event_timestamp END) AS created_at,
     MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END) AS authorized_at,
     MAX(CASE WHEN event_name = 'captured'   THEN event_timestamp END) AS captured_at,
+    MAX(CASE WHEN event_name = 'closed'     THEN event_timestamp END) AS closed_at,
+    MAX(CASE WHEN event_name = 'succeeded'  THEN event_timestamp END) AS succeeded_at,
+    MAX(CASE WHEN event_name = 'settled'    THEN event_timestamp END) AS settled_at,
+    MAX(CASE WHEN event_name = 'refunded'   THEN event_timestamp END) AS refunded_at,
 
     COUNT(event_id)                                                    AS event_count,
 
-    -- Payment status: most advanced state wins
+    -- Payment status: most advanced lifecycle state wins
+    -- Success path:  created → authorized → captured → closed → succeeded → settled
+    -- Refund path:   … → refunded (terminal, separate from settled)
     CASE
+        WHEN MAX(CASE WHEN event_name = 'settled'    THEN event_timestamp END) IS NOT NULL THEN 'settled'
+        WHEN MAX(CASE WHEN event_name = 'refunded'   THEN event_timestamp END) IS NOT NULL THEN 'refunded'
+        WHEN MAX(CASE WHEN event_name = 'succeeded'  THEN event_timestamp END) IS NOT NULL THEN 'succeeded'
+        WHEN MAX(CASE WHEN event_name = 'closed'     THEN event_timestamp END) IS NOT NULL THEN 'closed'
         WHEN MAX(CASE WHEN event_name = 'captured'   THEN event_timestamp END) IS NOT NULL THEN 'captured'
         WHEN MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END) IS NOT NULL THEN 'authorized'
         ELSE 'created'
@@ -52,8 +62,12 @@ SELECT
            - unix_timestamp(MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END))
     END AS capture_time_seconds,
 
-    -- End-to-end processing time (null if not yet captured)
+    -- End-to-end processing time: created → settled (or captured if not yet settled)
     CASE
+        WHEN MAX(CASE WHEN event_name = 'settled'  THEN event_timestamp END) IS NOT NULL
+         AND MAX(CASE WHEN event_name = 'created'  THEN event_timestamp END) IS NOT NULL
+        THEN unix_timestamp(MAX(CASE WHEN event_name = 'settled' THEN event_timestamp END))
+           - unix_timestamp(MAX(CASE WHEN event_name = 'created' THEN event_timestamp END))
         WHEN MAX(CASE WHEN event_name = 'captured' THEN event_timestamp END) IS NOT NULL
          AND MAX(CASE WHEN event_name = 'created'  THEN event_timestamp END) IS NOT NULL
         THEN unix_timestamp(MAX(CASE WHEN event_name = 'captured' THEN event_timestamp END))

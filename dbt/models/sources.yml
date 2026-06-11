@@ -20,7 +20,7 @@ sources:
           - name: payment_id
             description: "Payment foreign key — groups events by payment lifecycle."
           - name: event_name
-            description: "One of: created, authorized, captured."
+            description: "One of: created, authorized, captured, closed, succeeded, settled, refunded."
           - name: event_timestamp
             description: "Event timestamp (epoch ms cast to TIMESTAMP)."
           - name: event_date

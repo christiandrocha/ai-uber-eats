@@ -45,7 +45,7 @@ class TestSilverQualityGate:
         q = checked.filter(F.col("_quarantine_reason").startswith("invalid event_name:"))
         assert q.count() == 1
         reason = q.collect()[0]["_quarantine_reason"]
-        assert "refunded" in reason
+        assert "failed" in reason
 
     def test_null_timestamp_quarantined(self, spark, raw_events_with_invalid):
         checked = apply_quality_gate(raw_events_with_invalid)

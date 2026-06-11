@@ -28,12 +28,24 @@ models:
       - name: captured_at
         description: "Timestamp of the 'captured' event. Null if not yet captured."
 
+      - name: closed_at
+        description: "Timestamp of the 'closed' event. Null if not yet closed."
+
+      - name: succeeded_at
+        description: "Timestamp of the 'succeeded' event. Null if not yet succeeded."
+
+      - name: settled_at
+        description: "Timestamp of the 'settled' event. Null if not yet settled."
+
+      - name: refunded_at
+        description: "Timestamp of the 'refunded' event. Null if payment was not refunded."
+
       - name: payment_status
-        description: "Most advanced lifecycle state: captured > authorized > created."
+        description: "Most advanced lifecycle state: settled > refunded > succeeded > closed > captured > authorized > created."
         data_tests:
           - not_null
           - accepted_values:
-              values: ['created', 'authorized', 'captured']
+              values: ['created', 'authorized', 'captured', 'closed', 'succeeded', 'settled', 'refunded']
 
       - name: auth_time_seconds
         description: "Seconds from created_at to authorized_at. Null when authorized_at is null."

@@ -131,7 +131,7 @@ def raw_events_with_invalid(spark):
             dt_current_timestamp="2025-10-05 18:06:40.420"),
         # invalid event_name
         Row(event_id="ev-102", payment_id="pay-D",
-            event=Row(event_name="refunded", timestamp=EPOCH_MS),
+            event=Row(event_name="failed", timestamp=EPOCH_MS),
             dt_current_timestamp="2025-10-05 18:06:40.420"),
         # null event.timestamp
         Row(event_id="ev-103", payment_id="pay-E",

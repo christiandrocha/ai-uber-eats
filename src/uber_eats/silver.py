@@ -3,7 +3,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import StringType
 from pyspark.sql.window import Window
 
-VALID_EVENT_NAMES = {"created", "authorized", "captured"}
+VALID_EVENT_NAMES = {"created", "authorized", "captured", "closed", "succeeded", "settled", "refunded"}
 DT_FORMAT = "yyyy-MM-dd HH:mm:ss.SSS"
 QUARANTINE_RATE_THRESHOLD = 0.05
 
