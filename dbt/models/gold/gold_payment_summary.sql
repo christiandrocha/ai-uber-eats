@@ -46,33 +46,44 @@ SELECT
         ELSE 'created'
     END AS payment_status,
 
-    -- Time from creation to authorization (null if not yet authorized)
-    CASE
-        WHEN MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END) IS NOT NULL
-         AND MAX(CASE WHEN event_name = 'created'    THEN event_timestamp END) IS NOT NULL
-        THEN unix_timestamp(MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END))
-           - unix_timestamp(MAX(CASE WHEN event_name = 'created'    THEN event_timestamp END))
-    END AS auth_time_seconds,
+    -- Time from creation to authorization (null when not yet authorized or diff < 0)
+    -- Negative diff can occur when authorized_at uses dt_current_timestamp fallback
+    -- and sub-second rounding produces a value earlier than the epoch-precise created_at.
+    NULLIF(GREATEST(
+        CASE
+            WHEN MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END) IS NOT NULL
+             AND MAX(CASE WHEN event_name = 'created'    THEN event_timestamp END) IS NOT NULL
+            THEN unix_timestamp(MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END))
+               - unix_timestamp(MAX(CASE WHEN event_name = 'created'    THEN event_timestamp END))
+        END,
+        0
+    ), 0) AS auth_time_seconds,
 
-    -- Time from authorization to capture (null if not yet captured)
-    CASE
-        WHEN MAX(CASE WHEN event_name = 'captured'   THEN event_timestamp END) IS NOT NULL
-         AND MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END) IS NOT NULL
-        THEN unix_timestamp(MAX(CASE WHEN event_name = 'captured'   THEN event_timestamp END))
-           - unix_timestamp(MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END))
-    END AS capture_time_seconds,
+    -- Time from authorization to capture (null when not yet captured or diff < 0)
+    NULLIF(GREATEST(
+        CASE
+            WHEN MAX(CASE WHEN event_name = 'captured'   THEN event_timestamp END) IS NOT NULL
+             AND MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END) IS NOT NULL
+            THEN unix_timestamp(MAX(CASE WHEN event_name = 'captured'   THEN event_timestamp END))
+               - unix_timestamp(MAX(CASE WHEN event_name = 'authorized' THEN event_timestamp END))
+        END,
+        0
+    ), 0) AS capture_time_seconds,
 
     -- End-to-end processing time: created → settled (or captured if not yet settled)
-    CASE
-        WHEN MAX(CASE WHEN event_name = 'settled'  THEN event_timestamp END) IS NOT NULL
-         AND MAX(CASE WHEN event_name = 'created'  THEN event_timestamp END) IS NOT NULL
-        THEN unix_timestamp(MAX(CASE WHEN event_name = 'settled' THEN event_timestamp END))
-           - unix_timestamp(MAX(CASE WHEN event_name = 'created' THEN event_timestamp END))
-        WHEN MAX(CASE WHEN event_name = 'captured' THEN event_timestamp END) IS NOT NULL
-         AND MAX(CASE WHEN event_name = 'created'  THEN event_timestamp END) IS NOT NULL
-        THEN unix_timestamp(MAX(CASE WHEN event_name = 'captured' THEN event_timestamp END))
-           - unix_timestamp(MAX(CASE WHEN event_name = 'created'  THEN event_timestamp END))
-    END AS total_processing_time_seconds,
+    NULLIF(GREATEST(
+        CASE
+            WHEN MAX(CASE WHEN event_name = 'settled'  THEN event_timestamp END) IS NOT NULL
+             AND MAX(CASE WHEN event_name = 'created'  THEN event_timestamp END) IS NOT NULL
+            THEN unix_timestamp(MAX(CASE WHEN event_name = 'settled' THEN event_timestamp END))
+               - unix_timestamp(MAX(CASE WHEN event_name = 'created' THEN event_timestamp END))
+            WHEN MAX(CASE WHEN event_name = 'captured' THEN event_timestamp END) IS NOT NULL
+             AND MAX(CASE WHEN event_name = 'created'  THEN event_timestamp END) IS NOT NULL
+            THEN unix_timestamp(MAX(CASE WHEN event_name = 'captured' THEN event_timestamp END))
+               - unix_timestamp(MAX(CASE WHEN event_name = 'created'  THEN event_timestamp END))
+        END,
+        0
+    ), 0) AS total_processing_time_seconds,
 
     current_timestamp() AS _computed_at
 
