@@ -51,3 +51,26 @@ jobs:
 
       - name: Validate bundle
         run: databricks bundle validate
+
+  dbt-parse:
+    name: dbt Parse
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dbt-databricks
+        run: pip install dbt-databricks==1.9.3
+
+      - name: dbt parse (no connection needed)
+        env:
+          DATABRICKS_HOST: localhost
+          DATABRICKS_TOKEN: dummy
+          DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummy
+        run: dbt parse --profiles-dir dbt --project-dir dbt
