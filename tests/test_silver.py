@@ -250,11 +250,14 @@ class TestSilverQuarantineRate:
         check_quarantine_rate(valid_count=100, quarantine_count=4)  # 4% < 5%
 
     def test_rate_exactly_at_threshold_passes(self):
-        check_quarantine_rate(valid_count=95, quarantine_count=5)  # exactly 5%
+        check_quarantine_rate(valid_count=85, quarantine_count=15)  # exactly 15%
 
     def test_rate_exceeds_threshold_raises(self):
         with pytest.raises(ValueError, match="quarantine rate"):
-            check_quarantine_rate(valid_count=90, quarantine_count=10)  # 10% > 5%
+            check_quarantine_rate(valid_count=80, quarantine_count=20)  # 20% > 15%
+
+    def test_known_baseline_passes(self):
+        check_quarantine_rate(valid_count=2208, quarantine_count=254)  # 10.3% < 15%
 
     def test_zero_total_is_a_noop(self):
         check_quarantine_rate(valid_count=0, quarantine_count=0)  # no exception

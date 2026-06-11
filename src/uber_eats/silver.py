@@ -5,7 +5,7 @@ from pyspark.sql.window import Window
 
 VALID_EVENT_NAMES = {"created", "authorized", "captured", "closed", "succeeded", "settled", "refunded"}
 DT_FORMAT = "yyyy-MM-dd HH:mm:ss.SSS"
-QUARANTINE_RATE_THRESHOLD = 0.05
+QUARANTINE_RATE_THRESHOLD = 0.15  # source baseline: ~10.3% structurally empty rows
 
 
 def apply_quality_gate(df: DataFrame) -> DataFrame:
