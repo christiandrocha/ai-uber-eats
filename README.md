@@ -56,7 +56,7 @@ The pipeline runs as a Databricks Job deployed via **Databricks Asset Bundles (D
 ai-uber-eats/
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml              # Lint + test + bundle validate (on every push/PR)
+│       ├── ci.yml              # Lint + test + bundle validate + dbt parse (on every push/PR)
 │       └── cd.yml              # Deploy + run Bronze/Silver + dbt run/test (on master)
 ├── notebooks/
 │   ├── 01_bronze.ipynb         # Raw ingestion — filter, schema, MERGE
