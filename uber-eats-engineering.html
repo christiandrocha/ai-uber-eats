@@ -1079,17 +1079,19 @@ body {
     </div>
   </div>
 
-  <div class="dbt-future">
+  <div class="dbt-now">
     <div class="dbt-tag">mart_payment_daily_kpis</div>
     <div class="dbt-item">One row per calendar day — capture rate, avg auth/capture/total times</div>
     <div class="dbt-item">3-day incremental lookback absorbs late-arriving events</div>
-    <div class="dbt-item">Tests: <strong>unique(payment_date), not_null</strong> — added as a plain .sql file, no notebook</div>
+    <div class="dbt-item"><code style="font-family:var(--font-mono);font-size:11px">captured_at IS NOT NULL</code> counts payments that reached capture <em>or beyond</em> — payments at <code style="font-family:var(--font-mono);font-size:11px">settled</code> are correctly counted as captured</div>
+    <div class="dbt-item">Tests: <strong>unique(payment_date), not_null</strong></div>
     <div class="dbt-sql">
 <span class="cm">-- models/gold/mart_payment_daily_kpis.sql</span><br>
 <span class="kw">SELECT</span><br>
 &nbsp;&nbsp;<span class="kw">DATE</span>(created_at) <span class="kw">AS</span> payment_date,<br>
-&nbsp;&nbsp;<span class="kw">COUNT_IF</span>(payment_status = <span class="ref">'captured'</span>)<br>
-&nbsp;&nbsp;&nbsp;&nbsp;* 100.0 / <span class="kw">COUNT</span>(*) <span class="kw">AS</span> capture_rate_pct,<br>
+&nbsp;&nbsp;<span class="kw">COUNT_IF</span>(captured_at <span class="kw">IS NOT NULL</span>) <span class="kw">AS</span> captured_payments,<br>
+&nbsp;&nbsp;<span class="kw">ROUND</span>(<span class="kw">COUNT_IF</span>(captured_at <span class="kw">IS NOT NULL</span>)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;* 100.0 / <span class="kw">COUNT</span>(*), 2) <span class="kw">AS</span> capture_rate_pct,<br>
 &nbsp;&nbsp;...<br>
 <span class="kw">FROM</span> {{ ref(<span class="ref">'gold_payment_summary'</span>) }}<br>
 <span class="kw">GROUP BY</span> <span class="kw">DATE</span>(created_at)
@@ -1100,6 +1102,96 @@ body {
 
 <div class="callout insight anim" style="--i:16">
   <strong>Architecture:</strong> Bronze and Silver <em>stay in PySpark</em> — dbt is SQL-first and doesn't handle file ingestion or Python-based quarantine logic. The stack is Bronze (PySpark) → Silver (PySpark) → Gold (dbt) → Marts (dbt). Each tool where it shines.
+</div>
+
+<!-- ═══ 7. PIPELINE OUTPUT ═══ -->
+<div id="s7" class="sh anim" style="--i:17">
+  <span class="sh-num" style="color:var(--gold-mid);border-color:rgba(251,191,36,0.25);background:var(--gold-dim)">07</span>
+  <h2>Pipeline Output</h2>
+</div>
+
+<div class="anim" style="--i:18; display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px">
+
+  <!-- Layer counts -->
+  <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:18px">
+    <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-faint);letter-spacing:.06em;margin-bottom:12px">LAYER COUNTS — last run</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="color:var(--text-dim);border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:4px 0;font-weight:500">Layer</th>
+          <th style="text-align:right;padding:4px 0;font-weight:500">Rows</th>
+          <th style="text-align:right;padding:4px 0;font-weight:500">Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--bronze-mid);font-weight:600">Bronze</td>
+          <td style="text-align:right;padding:6px 0;font-family:var(--font-mono)">2,462</td>
+          <td style="text-align:right;padding:6px 0;color:var(--text-faint)">8 event types</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--silver-mid);font-weight:600">Silver</td>
+          <td style="text-align:right;padding:6px 0;font-family:var(--font-mono)">2,208</td>
+          <td style="text-align:right;padding:6px 0;color:var(--text-faint)">7 unique payments</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--text-faint);font-weight:500">Quarantine</td>
+          <td style="text-align:right;padding:6px 0;font-family:var(--font-mono)">254</td>
+          <td style="text-align:right;padding:6px 0;color:var(--text-faint)">10.3% — null payment_id</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--gold-mid);font-weight:600">gold_payment_summary</td>
+          <td style="text-align:right;padding:6px 0;font-family:var(--font-mono)">7</td>
+          <td style="text-align:right;padding:6px 0;color:var(--text-faint)">1 row per payment</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0;color:var(--gold-mid);font-weight:600">mart_payment_daily_kpis</td>
+          <td style="text-align:right;padding:6px 0;font-family:var(--font-mono)">1</td>
+          <td style="text-align:right;padding:6px 0;color:var(--text-faint)">2025-10-05</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Gold snapshot -->
+  <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:18px">
+    <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-faint);letter-spacing:.06em;margin-bottom:12px">GOLD SNAPSHOT — gold_payment_summary</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="color:var(--text-dim);border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:4px 0;font-weight:500">Metric</th>
+          <th style="text-align:right;padding:4px 0;font-weight:500">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--text)">Unique payments</td>
+          <td style="text-align:right;font-family:var(--font-mono);color:var(--dbt-mid)">7</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--text)">payment_status</td>
+          <td style="text-align:right;font-family:var(--font-mono);color:var(--dbt-mid)">settled (100%)</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--text)">Full lifecycle populated</td>
+          <td style="text-align:right;font-family:var(--font-mono);color:var(--dbt-mid)">7 / 7</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--text)">Capture rate (2025-10-05)</td>
+          <td style="text-align:right;font-family:var(--font-mono);color:var(--dbt-mid)">100%</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0;color:var(--text)">dbt tests</td>
+          <td style="text-align:right;font-family:var(--font-mono);color:var(--dbt-mid)">13 / 13 pass</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<div class="callout insight anim" style="--i:19">
+  <strong>Dataset shape:</strong> 7 unique payments × ~315 events each = 2,208 Silver rows. Each payment cycled through the full lifecycle (created → authorized → captured → closed → succeeded → settled → refunded). The 254 structurally empty Bronze rows (null payment_id) are quarantined — below the 15% threshold.
 </div>
 
 <!-- DOT NAVIGATION -->
@@ -1126,6 +1218,10 @@ body {
   </div>
   <div class="dot-nav-item" data-target="s6">
     <span class="dot-label">06 · dbt Layer</span>
+    <div class="dot-pip"></div>
+  </div>
+  <div class="dot-nav-item" data-target="s7">
+    <span class="dot-label">07 · Pipeline Output</span>
     <div class="dot-pip"></div>
   </div>
 </nav>
