@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: mart_payment_daily_kpis
+    description: >
+      Daily payment funnel metrics derived from gold_payment_summary.
+      One row per calendar day (based on created_at).
+      Incrementally updated — the last 3 days are recomputed on each run
+      to absorb late-arriving events.
+
+    columns:
+      - name: payment_date
+        description: "Calendar date of the payment creation event."
+        data_tests:
+          - unique
+          - not_null
+
+      - name: total_payments
+        description: "Total payments initiated on this date."
+        data_tests:
+          - not_null
+
+      - name: captured_payments
+        description: "Payments that reached the captured state on this date."
+
+      - name: authorized_payments
+        description: "Payments that are authorized but not yet captured on this date."
+
+      - name: pending_payments
+        description: "Payments in created state only — not yet authorized."
+
+      - name: capture_rate_pct
+        description: "Percentage of initiated payments that reached captured status (0–100)."
+        data_tests:
+          - not_null
+
+      - name: avg_auth_time_seconds
+        description: "Average seconds from created_at to authorized_at. Null if no authorized payments on this date."
+
+      - name: avg_capture_time_seconds
+        description: "Average seconds from authorized_at to captured_at. Null if no captured payments on this date."
+
+      - name: avg_total_time_seconds
+        description: "Average end-to-end seconds from created_at to captured_at."
+
+      - name: _computed_at
+        description: "When this row was last computed by dbt."
+        data_tests:
+          - not_null

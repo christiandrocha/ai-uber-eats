@@ -11,13 +11,13 @@ models:
     columns:
       - name: payment_id
         description: "Business key — unique per payment."
-        tests:
+        data_tests:
           - unique
           - not_null
 
       - name: created_at
         description: "Timestamp of the 'created' event."
-        tests:
+        data_tests:
           - not_null:
               config:
                 severity: warn
@@ -30,7 +30,7 @@ models:
 
       - name: payment_status
         description: "Most advanced lifecycle state: captured > authorized > created."
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
               values: ['created', 'authorized', 'captured']
@@ -46,10 +46,10 @@ models:
 
       - name: event_count
         description: "Total events observed for this payment_id."
-        tests:
+        data_tests:
           - not_null
 
       - name: _computed_at
         description: "Timestamp when this Gold row was last computed by dbt."
-        tests:
+        data_tests:
           - not_null

@@ -10,6 +10,10 @@ sources:
         description: >
           Deduplicated, type-cast, and quality-gated payment events.
           One row per event_id. Business key: event_id.
+        loaded_at_field: _silver_processed_at
+        freshness:
+          warn_after:  {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
         columns:
           - name: event_id
             description: "Unique event identifier."
