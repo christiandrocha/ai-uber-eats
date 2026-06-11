@@ -65,11 +65,16 @@ ai-uber-eats/
 ├── dbt/
 │   ├── dbt_project.yml         # dbt project config — name, paths, materialization
 │   ├── profiles.yml            # Databricks connection (reads from env vars)
+│   ├── .gitignore              # Excludes target/, dbt_packages/, logs/
+│   ├── macros/
+│   │   └── generate_schema_name.sql       # Unity Catalog schema naming override
 │   ├── models/
-│   │   ├── sources.yml         # silver_payment_events declared as dbt source
+│   │   ├── sources.yml         # silver_payment_events with freshness thresholds
 │   │   └── gold/
-│   │       ├── gold_payment_summary.sql   # Gold aggregation — incremental MERGE
-│   │       └── gold_payment_summary.yml   # Schema tests: unique, not_null, accepted_values
+│   │       ├── gold_payment_summary.sql       # One row per payment — lifecycle MERGE
+│   │       ├── gold_payment_summary.yml       # Schema tests: unique, not_null, accepted_values
+│   │       ├── mart_payment_daily_kpis.sql    # Daily funnel metrics — capture rate, avg times
+│   │       └── mart_payment_daily_kpis.yml    # Schema tests for the daily mart
 │   └── tests/
 │       └── assert_no_negative_times.sql   # Custom test — time metrics ≥ 0
 ├── src/
@@ -238,14 +243,17 @@ push / pull_request
 │  CI (runs on every push/PR)       │
 │  ├─ ruff check .                  │  Lint
 │  ├─ pytest (75 tests, cov ≥ 80%)  │  Unit tests + coverage
-│  └─ databricks bundle validate    │  Bundle config check
+│  ├─ databricks bundle validate    │  Bundle config check
+│  └─ dbt parse                     │  Validate SQL/Jinja (no connection needed)
 └───────────────────┬───────────────┘
                     │ CI success on master
                     ▼
 ┌───────────────────────────────────┐
 │  CD (master only, CI must pass)   │
 │  ├─ databricks bundle deploy      │  Deploy notebooks + job
-│  └─ databricks bundle run         │  Execute Bronze→Silver→Gold
+│  ├─ databricks bundle run         │  Execute Bronze → Silver
+│  ├─ dbt run                       │  Build Gold + daily KPIs mart
+│  └─ dbt test                      │  Schema + custom tests
 └───────────────────────────────────┘
 ```
 
@@ -262,17 +270,38 @@ The Gold layer is managed by [dbt-databricks](https://github.com/databricks/dbt-
 | Model | Materialization | Description |
 |-------|----------------|-------------|
 | `gold_payment_summary` | incremental (merge) | One row per payment — lifecycle timestamps, status, timing metrics |
+| `mart_payment_daily_kpis` | incremental (merge) | One row per day — capture rate, avg auth/capture/total times; last 3 days recomputed for late-arriving events |
+
+### Macros
+
+| Macro | Purpose |
+|-------|---------|
+| `generate_schema_name` | Unity Catalog override — returns the custom schema name as-is instead of concatenating `target__custom` |
+
+### Source Freshness
+
+`dbt source freshness` monitors `silver_payment_events` via `_silver_processed_at`:
+
+| Threshold | Action |
+|-----------|--------|
+| > 24 hours since last load | warn |
+| > 48 hours since last load | error |
 
 ### Tests
 
-| Test | Type | What it checks |
-|------|------|---------------|
-| `unique(payment_id)` | schema | No duplicate payment_ids in Gold |
-| `not_null(payment_id)` | schema | Business key is always present |
-| `not_null(payment_status)` | schema | Every payment has a status |
-| `accepted_values(payment_status)` | schema | Only `created`, `authorized`, `captured` |
-| `not_null(event_count)` | schema | Event count is always populated |
-| `assert_no_negative_times` | custom | Time metrics are never negative |
+| Test | Model | Type | What it checks |
+|------|-------|------|---------------|
+| `unique(payment_id)` | `gold_payment_summary` | schema | No duplicate payment_ids |
+| `not_null(payment_id)` | `gold_payment_summary` | schema | Business key always present |
+| `not_null(payment_status)` | `gold_payment_summary` | schema | Every payment has a status |
+| `accepted_values(payment_status)` | `gold_payment_summary` | schema | Only `created`, `authorized`, `captured` |
+| `not_null(event_count)` | `gold_payment_summary` | schema | Event count always populated |
+| `not_null(_computed_at)` | `gold_payment_summary` | schema | Computation timestamp present |
+| `assert_no_negative_times` | `gold_payment_summary` | custom | Time metrics are never negative |
+| `unique(payment_date)` | `mart_payment_daily_kpis` | schema | One row per calendar day |
+| `not_null(payment_date)` | `mart_payment_daily_kpis` | schema | Date always present |
+| `not_null(total_payments)` | `mart_payment_daily_kpis` | schema | Count always present |
+| `not_null(capture_rate_pct)` | `mart_payment_daily_kpis` | schema | Rate always computed |
 
 ### Running dbt locally
 
@@ -441,11 +470,11 @@ All operations use the DataFrame/SQL API exclusively — no `sparkContext`, no R
 
 ## Next Steps
 
-- **dbt marts**: Add analytical models on top of `gold_payment_summary` — e.g. `payments_captured_under_60s`, `daily_capture_rate` — each as a simple `.sql` file in `dbt/models/`.
+- **dbt docs site**: Publish the dbt documentation site (`dbt docs generate`) to GitHub Pages on each CD run for automatic lineage and column documentation.
 - **Schema evolution**: Evaluate `CONSTRAINT` columns and `CHECK` constraints in Silver DDL as the source schema stabilises.
 - **Databricks SQL Alerts**: Add a quarantine-rate dashboard alert for continuous monitoring beyond the pipeline's built-in 5% threshold check.
 - **staging/prod promotion**: Configure GitHub Environment approvals so `databricks bundle deploy --target prod` requires manual sign-off from a reviewer.
-- **dbt docs site**: Publish the dbt documentation site (`dbt docs generate`) to GitHub Pages on each CD run for automatic lineage and column documentation.
+- **Source freshness in CD**: Add `dbt source freshness` as a CD step to gate deployment on stale Silver data.
 
 ---
 
