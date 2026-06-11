@@ -133,9 +133,9 @@ def raw_events_with_invalid(spark):
         Row(event_id="ev-102", payment_id="pay-D",
             event=Row(event_name="failed", timestamp=EPOCH_MS),
             dt_current_timestamp="2025-10-05 18:06:40.420"),
-        # null event.timestamp
+        # null event.timestamp AND null dt_current_timestamp → no time reference at all
         Row(event_id="ev-103", payment_id="pay-E",
             event=Row(event_name="created", timestamp=None),
-            dt_current_timestamp="2025-10-05 18:06:40.420"),
+            dt_current_timestamp=None),
     ]
     return spark.createDataFrame(rows, schema=BRONZE_SOURCE_SCHEMA)

@@ -49,7 +49,7 @@ class TestSilverQualityGate:
 
     def test_null_timestamp_quarantined(self, spark, raw_events_with_invalid):
         checked = apply_quality_gate(raw_events_with_invalid)
-        q = checked.filter(F.col("_quarantine_reason") == "event.timestamp is null")
+        q = checked.filter(F.col("_quarantine_reason") == "event timestamp is null")
         assert q.count() == 1
 
     def test_quarantine_count_correct(self, spark, raw_events_with_invalid):

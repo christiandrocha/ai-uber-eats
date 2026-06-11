@@ -22,7 +22,10 @@ def apply_quality_gate(df: DataFrame) -> DataFrame:
                  F.coalesce(F.col("event.event_name"), F.lit("<null>"))
              )
          )
-         .when(F.col("event.timestamp").isNull(),    F.lit("event.timestamp is null"))
+         .when(
+             F.col("event.timestamp").isNull() & F.col("dt_current_timestamp").isNull(),
+             F.lit("event timestamp is null")
+         )
          .otherwise(F.lit(None).cast(StringType()))
     )
 
@@ -47,7 +50,10 @@ def apply_transformations(valid_df: DataFrame) -> DataFrame:
         .withColumn("event_name",   F.col("event.event_name"))
         .withColumn(
             "event_timestamp",
-            F.timestamp_seconds((F.col("event.timestamp") / 1000).cast("double"))
+            F.coalesce(
+                F.timestamp_seconds((F.col("event.timestamp") / 1000).cast("double")),
+                F.to_timestamp(F.col("dt_current_timestamp"), DT_FORMAT),
+            )
         )
         .withColumn(
             "dt_current_timestamp",
