@@ -752,11 +752,11 @@ body {
     <div class="layer-body">
       <div class="layer-chip">
         <strong>Quality gate (5 rules)</strong>
-        <span>event_id, payment_id, event struct, event_name enum, timestamp — in that order</span>
+        <span>event_id · payment_id · event struct · 7 valid event_names · at least one timestamp — in that order</span>
       </div>
       <div class="layer-chip">
         <strong>Quarantine pattern</strong>
-        <span>Invalid records go to quarantine_table with reason. Pipeline fails if &gt;5%.</span>
+        <span>Invalid records go to quarantine_table with reason. Pipeline fails if &gt;15% (calibrated above 10.3% source baseline).</span>
       </div>
       <div class="layer-chip">
         <strong>Dedup + MERGE</strong>
@@ -786,11 +786,15 @@ body {
     <div class="layer-body">
       <div class="layer-chip">
         <strong>Pivot by event_name</strong>
-        <span>MAX(CASE WHEN) turns events into columns: created_at, authorized_at, captured_at</span>
+        <span>MAX(CASE WHEN) turns 7 event types into columns: created_at · authorized_at · captured_at · closed_at · succeeded_at · settled_at · refunded_at</span>
+      </div>
+      <div class="layer-chip">
+        <strong>Payment status priority</strong>
+        <span>settled &gt; refunded &gt; succeeded &gt; closed &gt; captured &gt; authorized &gt; created — most advanced lifecycle state wins</span>
       </div>
       <div class="layer-chip">
         <strong>Timing metrics</strong>
-        <span>auth_time_seconds, capture_time_seconds, total_processing_time_seconds per payment</span>
+        <span>auth_time_seconds · capture_time_seconds · total_processing_time_seconds (uses settled_at when available)</span>
       </div>
       <div class="layer-chip">
         <strong>Daily KPIs mart</strong>
@@ -867,7 +871,7 @@ body {
       The pipeline "passed" but Gold was empty.
     </div>
     <div class="dec-solution">
-      <code>check_quarantine_rate()</code> raises ValueError if the quarantine rate exceeds 5%. The job fails before writing — surfacing the problem instead of degrading silently.
+      <code>check_quarantine_rate()</code> raises ValueError if the quarantine rate exceeds 15% (calibrated above the 10.3% known-bad source baseline). The job fails before writing — surfacing the problem instead of degrading silently.
     </div>
   </div>
 
@@ -881,6 +885,46 @@ body {
     </div>
     <div class="dec-solution">
       <code>CLUSTER BY</code> (Liquid Clustering) — Delta reorganizes files automatically on compaction. Adapts to query patterns without manual repartitioning.
+    </div>
+  </div>
+
+  <div class="dec-card">
+    <div class="dec-num">Decision 07</div>
+    <h3>event.timestamp absent for non-created events</h3>
+    <div class="dec-problem">
+      Source JSON omits the epoch timestamp field for<br>
+      authorized, captured, closed, succeeded, settled,<br>
+      refunded — Rule 5 quarantined 2,086 of 2,462 rows (85%)
+    </div>
+    <div class="dec-solution">
+      Silver resolves <code>event_timestamp</code> via COALESCE: epoch field first, <code>dt_current_timestamp</code> as fallback. Quarantine fires only when <em>both</em> are absent — no usable time reference at all.
+    </div>
+  </div>
+
+  <div class="dec-card">
+    <div class="dec-num">Decision 08</div>
+    <h3>VALID_EVENT_NAMES too narrow</h3>
+    <div class="dec-problem">
+      Initial gate only allowed created / authorized / captured.<br>
+      Real lifecycle has 7 event types — closed, succeeded,<br>
+      settled, refunded were quarantined as "invalid", causing<br>
+      54% quarantine rate and Gold columns full of nulls.
+    </div>
+    <div class="dec-solution">
+      Expanded <code>VALID_EVENT_NAMES</code> to all 7 lifecycle values after inspecting Bronze. Quarantine threshold raised from 5% to 15% — calibrated above the 10.3% known-bad baseline (254 structurally empty source rows).
+    </div>
+  </div>
+
+  <div class="dec-card">
+    <div class="dec-num">Decision 09</div>
+    <h3>Watermark stale after same-batch Bronze ingestion</h3>
+    <div class="dec-problem">
+      All 2,462 Bronze records shared the same <code>_ingested_at</code>.<br>
+      Silver incremental filter (<code>&gt; MAX(_ingested_at)</code>) returned<br>
+      zero rows on every re-run after the initial 376 were written.
+    </div>
+    <div class="dec-solution">
+      <code>TRUNCATE TABLE silver_payment_events</code> resets the watermark to null, forcing a full Bronze read on the next run. Required once whenever Bronze is back-filled in a single batch.
     </div>
   </div>
 
@@ -1022,9 +1066,14 @@ body {
 <span class="cm">-- models/gold/gold_payment_summary.sql</span><br>
 <span class="kw">SELECT</span><br>
 &nbsp;&nbsp;payment_id,<br>
-&nbsp;&nbsp;<span class="kw">MAX</span>(<span class="kw">CASE WHEN</span> event_name = <span class="ref">'captured'</span><br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">THEN</span> event_timestamp <span class="kw">END</span>) <span class="kw">AS</span> captured_at,<br>
-&nbsp;&nbsp;...<br>
+&nbsp;&nbsp;<span class="kw">MAX</span>(<span class="kw">CASE WHEN</span> event_name = <span class="ref">'created'</span>&nbsp;&nbsp;&nbsp;<span class="kw">THEN</span> event_timestamp <span class="kw">END</span>) <span class="kw">AS</span> created_at,<br>
+&nbsp;&nbsp;<span class="kw">MAX</span>(<span class="kw">CASE WHEN</span> event_name = <span class="ref">'authorized'</span> <span class="kw">THEN</span> event_timestamp <span class="kw">END</span>) <span class="kw">AS</span> authorized_at,<br>
+&nbsp;&nbsp;<span class="kw">MAX</span>(<span class="kw">CASE WHEN</span> event_name = <span class="ref">'captured'</span>&nbsp;&nbsp;<span class="kw">THEN</span> event_timestamp <span class="kw">END</span>) <span class="kw">AS</span> captured_at,<br>
+&nbsp;&nbsp;<span class="kw">MAX</span>(<span class="kw">CASE WHEN</span> event_name = <span class="ref">'settled'</span>&nbsp;&nbsp;&nbsp;<span class="kw">THEN</span> event_timestamp <span class="kw">END</span>) <span class="kw">AS</span> settled_at,<br>
+&nbsp;&nbsp;<span class="cm">-- + closed_at, succeeded_at, refunded_at</span><br>
+&nbsp;&nbsp;<span class="kw">CASE WHEN</span> settled_at&nbsp;&nbsp;&nbsp;<span class="kw">IS NOT NULL THEN</span> <span class="ref">'settled'</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">WHEN</span> captured_at <span class="kw">IS NOT NULL THEN</span> <span class="ref">'captured'</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">ELSE</span> <span class="ref">'created'</span> <span class="kw">END AS</span> payment_status<br>
 <span class="kw">FROM</span> {{ source(<span class="ref">'payments'</span>, <span class="ref">'silver_payment_events'</span>) }}<br>
 <span class="kw">GROUP BY</span> payment_id
     </div>
